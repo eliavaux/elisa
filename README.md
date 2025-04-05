@@ -21,7 +21,15 @@ Finding the global minimum, rather than a local one with gradient descent, would
 I plan to add support for 5PL as well.
 
 ## Resources
+
+### Screenshots
+
+<img src="https://github.com/eliavaux/elisa/blob/main/resources/Screenshot%20Microplate.png" width="50%">
+<img src="https://github.com/eliavaux/elisa/blob/main/resources/Screenshot%20Plot.png" width="50%">
+
+### Math
+
 Since I couldn't find them anywhere else, here are the derivatives of the error function with respect
 to a, b, c and d which I used for gradient descent.
 
-![Derivatives with respect to a, b, c and d](https://github.com/eliavaux/elisa/blob/main/resources/math.jpg)
+<img src="https://github.com/eliavaux/elisa/blob/main/resources/math.jpg" width="50%">
