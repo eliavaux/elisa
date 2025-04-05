@@ -1,0 +1,18 @@
+[package]
+name = "elisa"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+calamine = "0.26.1"
+chrono = "0.4.40"
+eframe = "0.31.1"
+egui_extras = "0.31.1"
+egui_plot = { git = "https://github.com/mkalte666/egui_plot", branch = "log_plot", version = "0.31.0" }
+env_logger = "0.11.6"
+font-loader = "0.11.0"
+image = "0.25.6"
+pdf-writer = "0.13.0"
+rfd = "0.15.1"
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.135"
