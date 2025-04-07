@@ -300,21 +300,31 @@ impl Elisa {
                         ui.set_min_height(195.0);
                         if let Some(index) = self.selected_sample {
                             use SampleType::*;
-                            let sample = &mut samples[index];
                             
                             ui.horizontal(|ui| {
                                 ui.label(format!("Selected sample {}", index + 1));
 
                                 let (response, painter) = ui.allocate_painter(vec2(ui.available_width(), 2.0 * radius), Sense::hover());
-                                painter.circle(response.rect.right_center() - vec2(2.0 * radius - 10.0, 0.0), radius, sample.typ.color(), Stroke::NONE);
+                                painter.circle(response.rect.right_center() - vec2(2.0 * radius - 10.0, 0.0), radius, samples[index].typ.color(), Stroke::NONE);
                             });
                             ui.add_space(10.0);
                             ui.separator();
                             ui.add_space(10.0);
 
                             let row_height = 30.0;
-                            let list = ["Sample Type", "Measurement", "Group", "Label"];
+                            let mut list = vec!["Sample Type", "Measurement"];
+                            match samples[index].typ {
+                                Standard => {
+                                    list.push("Group")
+                                },
+                                Unknown => {
+                                    list.push("Group");
+                                    list.push("Label");
+                                }
+                                _ => ()
+                            }
 
+                            // Building two tables with different alignment is suboptimal
                             ui.horizontal_top(|ui| {
                                 TableBuilder::new(ui).id_salt("Names")
                                     .column(Column::auto()).body(|body| {
@@ -333,12 +343,12 @@ impl Elisa {
                                         body.row(row_height, |mut row| {
                                             row.col(|ui| {
                                                 ui.horizontal_centered(|ui| {
-                                                    let menu_button = ui.menu_button(format!("{:?}", sample.typ), |ui| {
-                                                        if ui.button("Unused").clicked() { sample.typ = Unused }
-                                                        if ui.button("Standard").clicked() { sample.typ = Standard }
-                                                        if ui.button("Control").clicked() { sample.typ = Control }
-                                                        if ui.button("Unknown").clicked() { sample.typ = Unknown }
-                                                        if ui.button("Blank").clicked() { sample.typ = Blank }
+                                                    let menu_button = ui.menu_button(format!("{:?}", samples[index].typ), |ui| {
+                                                        if ui.button("Unused").clicked() { samples[index].typ = Unused }
+                                                        if ui.button("Standard").clicked() { samples[index].typ = Standard }
+                                                        if ui.button("Control").clicked() { samples[index].typ = Control }
+                                                        if ui.button("Unknown").clicked() { samples[index].typ = Unknown }
+                                                        if ui.button("Blank").clicked() { samples[index].typ = Blank }
                                                     });
                                                     Self::dashed_outline(ui, &menu_button.response);
                                                 });
@@ -347,57 +357,64 @@ impl Elisa {
                                         body.row(row_height, |mut row| {
                                             row.col(|ui| {
                                                 ui.horizontal_centered(|ui| {
-                                                    let measurement = sample.value.map(|f| format!("{:.5}", f)).unwrap_or("N/A".to_string());
+                                                    let measurement = samples[index].value.map(|f| format!("{:.5}", f)).unwrap_or("N/A".to_string());
                                                     ui.label(measurement);
                                                 });
                                             });                                        
                                         });
-                                        body.row(row_height, |mut row| {
-                                            row.col(|ui| {
-                                                ui.horizontal_centered(|ui| {
-                                                    self.selected_sample_group = sample.group + 1;
-                                                    let drag_value = DragValue::new(&mut self.selected_sample_group).speed(0.03).range(1..=100);
-                                                    let mut drag_value_resp = ui.add(drag_value);
-                                                    sample.group = self.selected_sample_group - 1;
+
+                                        if samples[index].typ == Unknown || samples[index].typ == Standard {
+                                            body.row(row_height, |mut row| {
+                                                row.col(|ui| {
+                                                    ui.horizontal_centered(|ui| {
+                                                        self.selected_sample_group = samples[index].group + 1;
+                                                        let drag_value = DragValue::new(&mut self.selected_sample_group).speed(0.03).range(1..=100);
+                                                        let mut drag_value_resp = ui.add(drag_value);
+                                                        samples[index].group = self.selected_sample_group - 1;
                                                 
-                                                    let id = drag_value_resp.id;
-                                                    // stolen from egui source code
-                                                    let interactive = ui.memory_mut(|mem| {
-                                                        mem.interested_in_focus(id, ui.layer_id());
-                                                        mem.has_focus(id)
+                                                        let id = drag_value_resp.id;
+                                                        // stolen from egui source code
+                                                        let interactive = ui.memory_mut(|mem| {
+                                                            mem.interested_in_focus(id, ui.layer_id());
+                                                            mem.has_focus(id)
+                                                        });
+
+                                                        if interactive {
+                                                            drag_value_resp.rect = drag_value_resp.rect.expand2(vec2(9.0, 3.0));
+                                                        }
+
+                                                        Self::dashed_outline(ui, &drag_value_resp);
                                                     });
 
-                                                    if interactive {
-                                                        drag_value_resp.rect = drag_value_resp.rect.expand2(vec2(9.0, 3.0));
-                                                    }
+                                                    let max_standard_group = samples.iter()
+                                                        .filter(|sample| sample.typ == SampleType::Standard)
+                                                        .map(|sample| sample.group)
+                                                        .max().unwrap_or_default();
+                                                    self.microplate.standard_groups.resize_with(max_standard_group + 1, default);
 
-                                                    Self::dashed_outline(ui, &drag_value_resp);
+                                                    let max_unknown_group = samples.iter()
+                                                        .filter(|sample| sample.typ == SampleType::Unknown)
+                                                        .map(|sample| sample.group)
+                                                        .max().unwrap_or_default();
+                                                    self.microplate.unknown_groups.resize_with(max_unknown_group + 1, default);
                                                 });
                                             });
-                                        });
-                                        body.row(row_height, |mut row| {
-                                            row.col(|ui| {
-                                                ui.horizontal_centered(|ui| {
-                                                    let mut text_edit = ui.add(TextEdit::singleline(&mut sample.label).desired_width(100.0));
-                                                    text_edit.rect = text_edit.rect.expand2(vec2(4.0, 2.0));
-                                                    Self::dashed_outline(ui, &text_edit);
+                                        }
+
+                                        if samples[index].typ == Unknown {
+                                            body.row(row_height, |mut row| {
+                                                row.col(|ui| {
+                                                    ui.horizontal_centered(|ui| {
+                                                        let label = &mut self.microplate.unknown_groups[samples[index].group].label;
+                                                        let mut text_edit = ui.add(TextEdit::singleline(label).desired_width(100.0));
+                                                        text_edit.rect = text_edit.rect.expand2(vec2(4.0, 2.0));
+                                                        Self::dashed_outline(ui, &text_edit);
+                                                    });
                                                 });
                                             });
-                                        });
+                                        }
                                     });
                             });
-                            let groups = &mut self.microplate.standard_groups;
-                            if let Some(max_standards_group) = samples.iter()
-                                .filter(|sample| sample.typ == SampleType::Standard)
-                                .map(|sample| sample.group)
-                                .max() {
-                                let max_standards_group = max_standards_group as usize + 1;
-                                if groups.len() < max_standards_group {
-                                    groups.resize_with(max_standards_group, default);
-                                } else {
-                                    groups.truncate(max_standards_group);
-                                }
-                            }                           
                         } else {
                             ui.label("Please select a sample from the microplate.");
                         }
@@ -473,10 +490,10 @@ impl Elisa {
                             let font_id = FontId::proportional(10.0);
 
                             painter.circle_filled(button.rect.center(), 12.0, background_fill);
-                            painter.text(button.rect.center(), Align2::CENTER_CENTER, "➗", font_id, Color32::BLACK);
+                            painter.text(button.rect.center(), Align2::CENTER_CENTER, "➗2", font_id, Color32::BLACK);
                             painter.circle_stroke(button.rect.center(), 12.0, (1.15, stroke));
                             if button.clicked() {
-                                if let Some(Group { concentration: Some(mut next) }) = groups.first() {
+                                if let Some(Group { concentration: Some(mut next), .. }) = groups.first() {
                                     for (i, group) in groups.iter_mut().enumerate().skip(1) {
                                         next /= 2.0;
                                         self.standards_textfield[i] = next.to_string();
@@ -537,11 +554,7 @@ impl Elisa {
                             match Regression::new(microplate) {
                                 Ok(regression) => {
                                     self.regression = Some(regression);
-                                    let regression = self.regression.as_mut().unwrap();
-                                    if let Ok(abcd) = regression.four_pl_curve_fit() {
-                                        regression.calculate_unknowns(&abcd);
-                                        self.current_tab = ElisaTab::Result;
-                                    }
+                                    self.current_tab = ElisaTab::Result;
                                 },
                                 Err(error) => { self.value_error_modal = Some(error) }
                             }

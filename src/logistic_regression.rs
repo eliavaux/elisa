@@ -38,14 +38,14 @@ impl SampleType {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Sample {
     pub typ: SampleType,
-    pub group: u8,          // index to group in microplate
-    pub label: String,
+    pub group: usize,        // index to group in microplate
     pub value: Option<f64>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct Group {
     pub concentration: Option<f64>,
+    pub label: String,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -65,6 +65,8 @@ impl Microplate {
             height,
             width,
             samples: vec![default(); width * height],
+            standard_groups: vec![default()],
+            unknown_groups: vec![default()],
             ..default()
         }
     }
@@ -82,112 +84,175 @@ pub enum ValueError {
 pub enum RegressionError {
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Regression {
     pub abcd: (f64, f64, f64, f64),
-    pub blanks: Vec<(usize, f64)>,
-    pub controls: Vec<(usize, f64)>,
-    pub unknowns: Vec<(usize, f64, f64)>,
-    pub standards: Vec<(usize, f64, f64)>,
+    pub blank: f64,
+    pub control: f64,
+    pub unknowns: Vec<(f64, f64, String)>,
+    pub standards: Vec<(f64, f64)>,
+    pub sse: f64,
+    pub mse: f64,
+    pub rmse: f64,
+    pub sy_x: f64,
 }
 
 impl Regression {
     pub fn new(microplate: &Microplate) -> Result<Self, ValueError> {
         use ValueError::*;
 
-        let abcd = (0.0, 0.0, 0.0, 0.0);
-        let mut blanks = Vec::new();
-        let mut unknowns = Vec::new();
-        let mut standards = Vec::new();
-        let mut controls = Vec::new();
+        let unknowns_len = microplate.unknown_groups.len();
+        let standards_len = microplate.standard_groups.len();
 
-        for (i, Sample { typ, group, value, .. }) in microplate.samples.iter().enumerate() {
-            if typ == &Unused { continue }
-            let Some(value) = *value else { return Err(UnassignedValue) };
+        // (sum, count) pairs
+        let mut blank = (0.0, 0);
+        let mut control = (0.0, 0);
+        let mut unknowns = vec![(0.0, 0); unknowns_len];
+        let mut standards = vec![(0.0, 0); standards_len];
+
+        // add up values
+        for Sample { typ, group, value } in &microplate.samples {
+            if *typ == Unused { continue }
+            let Some(value) = value else { return Err(UnassignedValue) };
             if !value.is_finite() { return Err(InvalidValue) }
 
             match typ {
-                Unknown => unknowns.push((i, 0.0, value)),
-                Standard => {
-                    let group = &microplate.standard_groups[*group as usize];
-                    if let Some(concentration) = group.concentration {
-                        if !concentration.is_finite() { return Err(InvalidConcentration) }
-                        standards.push((i, concentration, value))
-                    } else {
-                        return Err(UnassignedConcentration)
-                    }
+                Blank => {
+                    blank.0 += value;
+                    blank.1 += 1;
                 },
-                Control => controls.push((i, value)),
-                Blank => blanks.push((i, value)),
-                Unused => (),
+                Control => {
+                    control.0 += value;
+                    control.1 += 1;
+                },
+                Standard => {
+                    standards[*group].0 += value;
+                    standards[*group].1 += 1;
+                },
+                Unknown => {
+                    unknowns[*group].0 += value;
+                    unknowns[*group].1 += 1;
+                }
+                Unused => ()
             }
         }
         if standards.len() < 4 { return Err(NotEnoughStandards) }
 
-        Ok(Self { abcd, blanks, unknowns, standards, controls })
+        let blank = if blank.1 != 0 { blank.0 / blank.1 as f64 } else { 0.0 };
+        let control = if control.1 != 0 { control.0 / control.1 as f64 } else { 0.0 };
+
+        let unknowns = unknowns.iter().enumerate().map(|(i, &(sum, count))| {
+            let measurement = sum / count as f64;
+            let label = microplate.unknown_groups[i].label.clone();
+            (0.0, measurement, label)
+        }).collect();
+
+        let mut concentrations = vec![0.0; standards_len];
+        for (i, group) in concentrations.iter_mut().enumerate() {
+            let Some(concentration) = microplate.standard_groups[i].concentration else {
+                return Err(UnassignedConcentration)
+            };
+            if !concentration.is_finite() { return Err(InvalidConcentration) }
+            *group = concentration;
+        }
+
+        let standards = standards.iter().enumerate().map(|(i, &(sum, count))| {
+            let concentration = concentrations[i];
+            let measurement = sum / count as f64;
+            (concentration, measurement)
+        }).collect();
+
+        let mut regression = Self {
+            blank,
+            control,
+            unknowns,
+            standards,
+            ..default()
+        };
+        
+        regression.four_pl_curve_fit();
+        regression.calculate_unknowns();
+        regression.calculate_parameters();
+
+        Ok(regression)
     }
 
+    #[inline(always)]
     pub fn four_pl(&self, x: f64) -> f64 {
         let (a, b, c, d) = self.abcd;
         d + ((a - d) / (1.0 + (x/c).powf(b)))
     }
 
+    #[inline(always)]
+    pub fn inverse_four_pl(&self, y: f64) -> f64 {
+        let (a, b, c, d) = self.abcd;
+        c * ((a - d) / (y - d) - 1.0).powf(1.0 / b)
+    }
+
+    #[inline(always)]
     pub fn sum_of_squares(&self) -> f64 {
-        self.standards.iter().map(|&(_, x, y)| {
+        self.standards.iter().map(|&(x, y)| {
             let diff = y - self.four_pl(x);
             diff * diff
         }).sum()
     }
     
+    #[inline(always)]
     pub fn mean_squared_error(&self) -> f64 {
         let length = self.standards.len() as f64;
         let sum_of_squares = self.sum_of_squares();
         sum_of_squares / length
     }
 
+    #[inline(always)]
     pub fn root_mean_squared_error(&self) -> f64 {
         let length = self.standards.len() as f64;
         let sum_of_squares = self.sum_of_squares();
         (sum_of_squares / (length - 1.0)).sqrt()
     }
 
+    #[inline(always)]
     pub fn sy_x(&self) -> f64 {
         let length = self.standards.len() as f64;
         let sum_of_squares = self.sum_of_squares();
         (sum_of_squares / (length - 4.0)).sqrt()
     }
-    
-    pub fn calculate_unknowns(&mut self, abcd: &(f64, f64, f64, f64)) {
-        let (a, b, c, d) = abcd;
-        for (_i, x, y) in &mut self.unknowns {
+
+    #[inline(always)]
+    pub fn calculate_unknowns(&mut self) {
+        let (a, b, c, d) = self.abcd;
+        for (x, y, _) in &mut self.unknowns {
             *x = c * ((a - d) / (*y - d) - 1.0).powf(1.0 / b)
         }
     }
     
-    pub fn four_pl_curve_fit(&mut self) -> Result<(f64, f64, f64, f64), RegressionError> {
-        let Self { blanks, unknowns, standards, controls, .. } = self;
+    pub fn calculate_parameters(&mut self) {
+        self.sse = self.sum_of_squares();
+        self.mse = self.mean_squared_error();
+        self.rmse = self.root_mean_squared_error();
+        self.sy_x = self.sy_x();
+    }
+    
+    pub fn four_pl_curve_fit(&mut self) {
+        let Self { blank, unknowns, standards, control, .. } = self;
 
-        // subtract blanks
-        if !blanks.is_empty() {
-            let blanks_mean = blanks.iter().map(|(_, v)| v).sum::<f64>() / blanks.len() as f64;
-            unknowns.iter_mut().for_each(|(_, _c, v)| *v -= blanks_mean);
-            standards.iter_mut().for_each(|(_, _c, v)| *v -= blanks_mean);
-            controls.iter_mut().for_each(|(_, v)| *v -= blanks_mean);
-        }
+        // subtract blank
+        unknowns.iter_mut().for_each(|(_, v, _)| *v -= *blank);
+        standards.iter_mut().for_each(|(_, v)| *v -= *blank);
+        *control -= *blank;
 
-        standards.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap()); // Sort standards by concentration
         let n = standards.len() as f64;
 
-        let min = standards.first().unwrap();
-        let max = standards.last().unwrap();
+        let min = standards.iter().min_by(|&a, &b| a.0.partial_cmp(&b.0).unwrap()).unwrap();
+        let max = standards.iter().max_by(|&a, &b| a.0.partial_cmp(&b.0).unwrap()).unwrap();
 
         // guess initial values
-        let mut a = if !controls.is_empty() { // 0-dose asymptote
-            controls.iter().map(|(_, v)| v).sum::<f64>() / controls.len() as f64
-        } else { min.1 };
-        let mut d = max.2;                    // inf-dose asymptote
-        let mut c = (max.1 - min.1).sqrt();   // IC50 interpolation (log-scale)
-        let mut b = 2.0;                      // slope at IC50
+        let mut a = *control;  // 0-dose asymptote
+        let mut d = max.1;    // inf-dose asymptote
+        let mut c = (max.1 - min.1) / (max.0 - min.0).log10();  // IC50 interpolation (log-scale)
+        let mut b = 2.0;      // slope at IC50
+
+        dbg!(a, b, c, d);
 
         let learn_rate = (0.1, 1.5, 5_000_000.0, 0.5); // These values seem to work well, idk why c's learning rate is so high
 
@@ -197,7 +262,7 @@ impl Regression {
             let mut sum_c = 0.0;
             let mut sum_d = 0.0;
 
-            for (_i, x, y) in standards.iter() {
+            for (x, y) in standards.iter() {
                 let xc = x / c;
                 let xcb = xc.powf(b);
                 let xcb1 = xcb + 1.0;
@@ -230,6 +295,5 @@ impl Regression {
         }
 
         self.abcd = (a, b, c, d);
-        Ok((a, b, c, d))
     }
 }
