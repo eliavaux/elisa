@@ -136,15 +136,15 @@ impl Regression {
                 Unused => ()
             }
         }
-        if standards.len() < 4 { return Err(NotEnoughStandards) }
 
         let blank = if blank.1 != 0 { blank.0 / blank.1 as f64 } else { 0.0 };
         let control = if control.1 != 0 { control.0 / control.1 as f64 } else { 0.0 };
 
-        let unknowns = unknowns.iter().enumerate().map(|(i, &(sum, count))| {
+        let unknowns = unknowns.iter().enumerate().filter_map(|(i, &(sum, count))| {
+            if count == 0 { return None }
             let measurement = sum / count as f64;
             let label = microplate.unknown_groups[i].label.clone();
-            (0.0, measurement, label)
+            Some((0.0, measurement, label))
         }).collect();
 
         let mut concentrations = vec![0.0; standards_len];
@@ -156,11 +156,15 @@ impl Regression {
             *group = concentration;
         }
 
-        let standards = standards.iter().enumerate().map(|(i, &(sum, count))| {
+        let standards: Vec<_> = standards.iter().enumerate().filter_map(|(i, &(sum, count))| {
+            if count == 0 { return None }
             let concentration = concentrations[i];
             let measurement = sum / count as f64;
-            (concentration, measurement)
+            Some((concentration, measurement))
         }).collect();
+
+        dbg!(&standards);
+        if standards.len() < 4 { return Err(NotEnoughStandards) }
 
         let mut regression = Self {
             blank,
