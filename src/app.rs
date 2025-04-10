@@ -95,8 +95,6 @@ pub struct Elisa {
     pub microplate: Microplate,
     pub data_textfield: String,
     pub excel: Option<Xlsx<BufReader<File>>>,
-    pub max_standard_group: usize,
-    pub max_unknown_group: usize,
     pub pdf_report: bool,
     pub plot_response: Option<Response>,
     pub plot_parameters: Option<[(&'static str, f64); 8]>,

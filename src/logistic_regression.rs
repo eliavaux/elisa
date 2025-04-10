@@ -14,16 +14,6 @@ pub enum SampleType {
 }
 
 impl SampleType {
-    pub fn cycle(&self) -> SampleType {
-        match self {
-            Unused => Blank,
-            Blank => Control,
-            Control => Standard,
-            Standard => Unknown,
-            Unknown => Unused,
-        }
-    }
-
     pub fn color(&self) -> Color32 {
         match self {
             Unused => Color32::from_hex("#D8DCE7").unwrap(),
@@ -79,9 +69,6 @@ pub enum ValueError {
     InvalidConcentration,
     InvalidValue,
     NotEnoughStandards,
-}
-
-pub enum RegressionError {
 }
 
 #[derive(Clone, Default)]
