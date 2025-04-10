@@ -130,6 +130,57 @@ impl Elisa {
         Some(())
     }
 
+    pub fn backfit_concentrations(&self, ui: &mut Ui) {
+        let Some(Regression { unknowns, .. }) = &self.regression else { return };
+        
+        let background = ui.visuals().faint_bg_color;
+        let stroke = ui.visuals().noninteractive().bg_stroke;
+
+        egui::Frame::new().show(ui, |ui| {
+            let width = ui.available_width().max(20.0);
+            ui.set_width(width);
+
+            ui.vertical_centered(|ui| ui.heading("Backfit Concentrations"));
+            ui.add_space(10.0);
+            egui::Frame::new()
+                .fill(background).stroke(stroke)
+                .inner_margin(10.0)
+                .show(ui, |ui| {
+                    let height = ui.available_height();
+                    ui.set_min_height(height);
+                    ui.set_width(width - 20.0);
+                    ui.spacing_mut().item_spacing = vec2(15.0, 0.0);
+
+                    TableBuilder::new(ui)
+                        .id_salt("Backfit Concentrations")
+                        .min_scrolled_height(height - 20.0)
+                        .max_scroll_height(height - 20.0)
+                        .columns(Column::auto(), 2)
+                        .column(Column::remainder())
+                        .header(20.0, |mut header| {
+                            header.col(|ui| { ui.add(Label::new("Group").selectable(true)); });
+                            header.col(|ui| { ui.add(Label::new("Raw Corrected").selectable(true)); });
+                            header.col(|ui| { ui.add(Label::new("Backfit").selectable(true)); });
+                        })
+                        .body(|body| {
+                            body.rows(25.0, unknowns.len(), |mut row| {
+                                let index = row.index();
+                                let (backfit, raw, label) = &unknowns[index];
+
+                                let mut backfit = backfit.to_string();
+                                let mut raw = raw.to_string();
+                                backfit.truncate(10);
+                                raw.truncate(10);
+                                
+                                row.col(|ui| { ui.add(Label::new(label).selectable(true)); });
+                                row.col(|ui| { ui.add(Label::new(raw).selectable(true)); });
+                                row.col(|ui| { ui.add(Label::new(backfit).selectable(true)); });
+                            });
+                        });
+                });
+        });
+    }
+
     pub fn save_as(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             let Some(plot_response) = &self.plot_response else { return };

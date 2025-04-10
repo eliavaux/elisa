@@ -214,6 +214,8 @@ impl Elisa {
                             ui.add_space(30.0);
                             ui.vertical(|ui| {
                                 self.plot_parameters(ui);
+                                ui.add_space(30.0);
+                                self.backfit_concentrations(ui);
                             });
                         });
                         ui.add_space(30.0);
