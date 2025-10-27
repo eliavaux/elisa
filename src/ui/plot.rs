@@ -87,17 +87,17 @@ impl Elisa {
 
     pub fn plot_parameters(&mut self, ui: &mut Ui) -> Option<()> {
         let regression = self.regression.as_ref()?;
-        let Regression { abcd, ..} = regression;
-        let &(a, b, c, d) = abcd;
+        let &Regression { abcd, mse, sse, sy_x, rmse, r_sq,  ..} = regression;
+        let (a, b, c, d) = abcd;
 
         let background = ui.visuals().faint_bg_color;
         let stroke = ui.visuals().noninteractive().bg_stroke;
 
-        let mse = regression.mean_squared_error();
-        let sse = regression.sum_of_squares();
-        let sy_x = regression.sy_x();
-        let rmse = regression.root_mean_squared_error();
-        let list = [("a", a), ("b", b), ("c", c), ("d", d), ("MSE", mse), ("SSE", sse), ("Sy.x", sy_x), ("RMSE", rmse)];
+        // let mse = regression.mean_squared_error();
+        // let sse = regression.sum_of_squares();
+        // let sy_x = regression.sy_x();
+        // let rmse = regression.root_mean_squared_error();
+        let list = [("a", a), ("b", b), ("c", c), ("d", d), ("MSE", mse), ("SSE", sse), ("Sy.x", sy_x), ("RMSE", rmse), ("R^2", r_sq)];
 
         self.plot_parameters = Some(list);
 
@@ -115,7 +115,8 @@ impl Elisa {
                     ui.spacing_mut().item_spacing = vec2(20.0, 5.0);
 
                     TableBuilder::new(ui).id_salt("Plot parameters")
-                        .max_scroll_height(100.0)
+                        // .max_scroll_height(100.0)
+                        .min_scrolled_height(150.0)
                         .column(Column::auto())
                         .column(Column::remainder())
                         .body(|body| {
@@ -149,7 +150,7 @@ impl Elisa {
                     let height = ui.available_height();
                     ui.set_min_height(height);
                     ui.set_width(width - 20.0);
-                    ui.spacing_mut().item_spacing = vec2(15.0, 0.0);
+                    ui.spacing_mut().item_spacing = vec2(20.0, 0.0);
 
                     TableBuilder::new(ui)
                         .id_salt("Backfit Concentrations")
@@ -264,9 +265,9 @@ impl Elisa {
 
         let Microplate { name, description, .. } = &self.microplate;
         let Some(regression) = &self.regression else { return };
-        let Regression { abcd, unknowns, standards, sse, mse, rmse, sy_x, .. } = regression;
+        let Regression { abcd, unknowns, standards, sse, mse, rmse, sy_x, r_sq,  .. } = regression;
         let (a, b, c, d) = abcd;
-        let parameters = [("a", a), ("b", b), ("c", c), ("d", d), ("SSE", sse), ("MSE", mse), ("RMSE", rmse), ("Sy.x", sy_x)];
+        let parameters = [("a", a), ("b", b), ("c", c), ("d", d), ("SSE", sse), ("MSE", mse), ("RMSE", rmse), ("Sy.x", sy_x), ("R^2", r_sq)];
 
         let mut pdf = Pdf::new();
 

@@ -97,7 +97,7 @@ pub struct Elisa {
     pub excel: Option<Xlsx<BufReader<File>>>,
     pub pdf_report: bool,
     pub plot_response: Option<Response>,
-    pub plot_parameters: Option<[(&'static str, f64); 8]>,
+    pub plot_parameters: Option<[(&'static str, f64); 9]>,
     pub sheet_names: Vec<String>,
     pub regression: Option<Regression>,
     pub selected_sheet: usize,

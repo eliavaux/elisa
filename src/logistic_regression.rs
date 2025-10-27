@@ -82,6 +82,7 @@ pub struct Regression {
     pub mse: f64,
     pub rmse: f64,
     pub sy_x: f64,
+    pub r_sq: f64
 }
 
 impl Regression {
@@ -197,9 +198,7 @@ impl Regression {
 
     #[inline(always)]
     pub fn root_mean_squared_error(&self) -> f64 {
-        let length = self.standards.len() as f64;
-        let sum_of_squares = self.sum_of_squares();
-        (sum_of_squares / (length - 1.0)).sqrt()
+        self.mean_squared_error().sqrt()
     }
 
     #[inline(always)]
@@ -210,18 +209,33 @@ impl Regression {
     }
 
     #[inline(always)]
+    pub fn r_squared(&self) -> f64 {
+        let n = self.standards.len() as f64;
+        let mean = self.standards.iter().map(|&(_x, y)| y).sum::<f64>() / n;
+
+        let total_sum_of_squares: f64 = self.standards.iter().map(|&(_x, y)| {
+            let y_hat = y - mean;
+            y_hat * y_hat
+        }).sum();
+
+
+        1.0 - self.sum_of_squares() / total_sum_of_squares
+    }
+
+    #[inline(always)]
     pub fn calculate_unknowns(&mut self) {
         let (a, b, c, d) = self.abcd;
         for (x, y, _) in &mut self.unknowns {
             *x = c * ((a - d) / (*y - d) - 1.0).powf(1.0 / b)
         }
     }
-    
+   
     pub fn calculate_parameters(&mut self) {
         self.sse = self.sum_of_squares();
         self.mse = self.mean_squared_error();
         self.rmse = self.root_mean_squared_error();
         self.sy_x = self.sy_x();
+        self.r_sq = self.r_squared();
     }
     
     pub fn four_pl_curve_fit(&mut self) {
@@ -247,7 +261,8 @@ impl Regression {
 
         let learn_rate = (0.1, 1.5, 5_000_000.0, 0.5); // These values seem to work well, idk why c's learning rate is so high
 
-        for i in 0..100_000 {
+        // I should really fix this
+        for i in 0..1_000_000 {
             let mut sum_a = 0.0;
             let mut sum_b = 0.0;
             let mut sum_c = 0.0;
@@ -264,12 +279,12 @@ impl Regression {
                 let duda = 1.0 / xcb1;
                 let dudb = lxcxcb / xcb1sq;
                 let dudc = xcb / xcb1sq;
-                let dudd = -(1.0 / xcb1) - 1.0;
-               
+                let dudd = 1.0 / xcb1 + 1.0;
+
                 sum_a += diff * duda;
                 sum_b += diff * dudb;
                 sum_c += diff * dudc;
-                sum_d += diff * dudd;   
+                sum_d += diff * dudd;
             }
 
             let da = 2.0 / n * sum_a;
@@ -280,7 +295,7 @@ impl Regression {
             a += learn_rate.0 * da;
             b += learn_rate.1 * db;
             c += learn_rate.2 * dc;
-            d -= learn_rate.3 * dd;
+            d += learn_rate.3 * dd;
 
             if i % 1000 == 0 { println!("a: {}, b: {}, c: {}, d: {}", a, b, c, d) };
         }
