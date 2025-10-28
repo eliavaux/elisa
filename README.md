@@ -29,7 +29,7 @@ I plan to add support for 5PL as well.
 
 ### Math
 
-Since I couldn't find them anywhere else, here are the derivatives of the error function with respect to
-a, b, c and d which I used for gradient descent.
+Since I couldn't find much on the topic anywhere else, I wrote a short explanation. The pdf can be found in `resources/math.pdf`
 
-<img src="https://github.com/eliavaux/elisa/blob/main/resources/math.jpg" width="50%">
+<img src="https://github.com/eliavaux/elisa/blob/main/resources/math1.svg" width="50%">
+<img src="https://github.com/eliavaux/elisa/blob/main/resources/math2.svg" width="50%">
