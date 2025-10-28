@@ -69,6 +69,8 @@ pub enum ValueError {
     InvalidConcentration,
     InvalidValue,
     NotEnoughStandards,
+    BlankTooBig,
+    ControlTooBig,
 }
 
 #[derive(Clone, Default)]
@@ -144,16 +146,26 @@ impl Regression {
             *group = concentration;
         }
 
-        let standards: Vec<_> = standards.iter().enumerate().filter_map(|(i, &(sum, count))| {
+        let mut standards: Vec<_> = standards.iter().enumerate().filter_map(|(i, &(sum, count))| {
             if count == 0 { return None }
             let concentration = concentrations[i];
             let measurement = sum / count as f64;
             Some((concentration, measurement))
         }).collect();
 
-        dbg!(&standards);
+        // We need at least 4 standards, preferably 8
         if standards.len() < 4 { return Err(NotEnoughStandards) }
 
+        // Sort standards by concentration
+        standards.sort_by(|(a_x, _a_y), (b_x, _b_y)| a_x.total_cmp(b_x));
+
+        // Find minimum measurement, this is not necessarily standards.first()
+        let standard_min = standards.iter().min_by(|(_a_x, a_y), (_b_x, b_y)| a_y.total_cmp(b_y)).unwrap().1;
+
+        if control > standard_min { return Err(ControlTooBig) }
+        if blank > standard_min { return Err(BlankTooBig) }
+
+        
         let mut regression = Self {
             blank,
             control,
@@ -219,7 +231,8 @@ impl Regression {
         }).sum();
 
 
-        1.0 - self.sum_of_squares() / total_sum_of_squares
+        let r = 1.0 - self.sum_of_squares() / total_sum_of_squares;
+        r * r
     }
 
     #[inline(always)]
@@ -240,46 +253,62 @@ impl Regression {
     
     pub fn four_pl_curve_fit(&mut self) {
         let Self { blank, unknowns, standards, control, .. } = self;
+        let n = standards.len() as f64;
 
         // subtract blank
         unknowns.iter_mut().for_each(|(_, v, _)| *v -= *blank);
         standards.iter_mut().for_each(|(_, v)| *v -= *blank);
         *control -= *blank;
 
-        let n = standards.len() as f64;
+        // convert standards x to x hat
+        let standards: Vec<_> = standards.iter().map(|&(x, y)| (x.ln(), y)).collect();
 
-        let min = standards.iter().min_by(|&a, &b| a.0.partial_cmp(&b.0).unwrap()).unwrap();
-        let max = standards.iter().max_by(|&a, &b| a.0.partial_cmp(&b.0).unwrap()).unwrap();
+        // find the minimum and maximum measurement, this is not necessarily standards.first()
+        let min = standards.iter().min_by(|(_a_x, a_y), (_b_x, b_y)| a_y.total_cmp(b_y)).unwrap();
+        let max = standards.iter().max_by(|(_a_x, a_y), (_b_x, b_y)| a_y.total_cmp(b_y)).unwrap();
+
 
         // guess initial values
-        let mut a = *control;  // 0-dose asymptote
+        let mut a = *control; // 0-dose asymptote
+        let mut b = 1.0;      // slope at IC50
         let mut d = max.1;    // inf-dose asymptote
-        let mut c = (max.1 - min.1) / (max.0 - min.0).log10();  // IC50 interpolation (log-scale)
-        let mut b = 2.0;      // slope at IC50
 
-        dbg!(a, b, c, d);
+        // We assume the point of inflection, c, is close to the interpolation between two standards with the greatest slope
+        let mut c_incline = 0.0;
+        let mut c = 0.0;
+        for window in standards.windows(2) {
+            let a = window[0];
+            let b = window[1];
 
-        let learn_rate = (0.1, 1.5, 5_000_000.0, 0.5); // These values seem to work well, idk why c's learning rate is so high
+            let incline = (b.1 - a.1) / (b.0 - a.0);
+
+            if c_incline < incline {
+                c_incline = incline;
+                c = (a.0 + b.0) / 2.0;
+            }
+        }
+
+        dbg!(a, b, c, d, blank, *control, min);
+
+
+        let learn_rate = (0.1, 1.0, 1.0, 0.1);
 
         // I should really fix this
-        for i in 0..1_000_000 {
+        for i in 0..100_000 {
             let mut sum_a = 0.0;
             let mut sum_b = 0.0;
             let mut sum_c = 0.0;
             let mut sum_d = 0.0;
 
             for (x, y) in standards.iter() {
-                let xc = x / c;
-                let xcb = xc.powf(b);
-                let xcb1 = xcb + 1.0;
-                let xcb1sq = xcb1 * xcb1;
-                let lxcxcb = xc.log10() * xcb;
-                
-                let diff = y - d - (a - d) / xcb1;
-                let duda = 1.0 / xcb1;
-                let dudb = lxcxcb / xcb1sq;
-                let dudc = xcb / xcb1sq;
-                let dudd = 1.0 / xcb1 + 1.0;
+                let ebxc = (b * (x - c)).exp();
+                let sigmoid = 1.0 / (1.0 + ebxc);
+
+                let diff = y - d - (a - d) * sigmoid;
+                let duda = sigmoid;
+                let dudb = (x - c) * ebxc * sigmoid * sigmoid;
+                let dudc = ebxc * sigmoid * sigmoid;
+                let dudd = sigmoid;
 
                 sum_a += diff * duda;
                 sum_b += diff * dudb;
@@ -287,18 +316,24 @@ impl Regression {
                 sum_d += diff * dudd;
             }
 
-            let da = 2.0 / n * sum_a;
-            let db = 2.0 * (d - a) / n * sum_b;
-            let dc = 2.0 * b * (a - d) / c / n * sum_c;
-            let dd = 2.0 / n * sum_d;
+            let da = -2.0 / n * sum_a;
+            let db = 2.0 * (a - d) / n * sum_b;
+            let dc = -2.0 * b * (a - d) / n * sum_c;
+            let dd = -2.0 / n * sum_d;
             
-            a += learn_rate.0 * da;
-            b += learn_rate.1 * db;
-            c += learn_rate.2 * dc;
-            d += learn_rate.3 * dd;
+            a -= learn_rate.0 * da;
+            b -= learn_rate.1 * db;
+            c -= learn_rate.2 * dc;
+            d -= learn_rate.3 * dd;
+
+            // We can make the reasonable assumption that the asymptotic lower bound must be between the control and the first standard
+            a = a.clamp(*control, min.1);
 
             if i % 1000 == 0 { println!("a: {}, b: {}, c: {}, d: {}", a, b, c, d) };
         }
+
+
+        let c = c.exp();
 
         self.abcd = (a, b, c, d);
     }

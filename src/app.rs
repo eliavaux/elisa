@@ -332,6 +332,8 @@ impl Elisa {
                         InvalidConcentration => "Microplate has a standard sample with an invalid concentration.",
                         InvalidValue => "Microplate has a sample an invalid value.",
                         NotEnoughStandards => "Microplate does not have enough standards for four parameter analysis.",
+                        BlankTooBig => "The blank is greater than one of the standard measurements",
+                        ControlTooBig => "The control is greater than one of the standard measurements",
                     };
                     ui.label(text);
                     ui.add_space(10.0);
