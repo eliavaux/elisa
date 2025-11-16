@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build Linux
+      run: cargo build --verbose --release
+    - name: Archive Linux Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-linux
+        path: target/release/elisa
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build Windows
+      run: cargo build --verbose --release
+    - name: Archive Windows Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-windows
+        path: target/release/elisa.exe
+
+  release:
+    # This job runs only after both build jobs successfully complete
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # write permissions are required to create a release
+    steps:
+      - name: Download Linux Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-linux
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-windows
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          # The tag name (e.g., v1.0.0) is automatically used as the release name/tag
+          files: |
+            elisa
+            elisa.exe
+        env:
+          # GITHUB_TOKEN is a secret provided by GitHub automatically
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
