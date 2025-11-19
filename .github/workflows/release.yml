@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    - name: Install missing dependencies
+      run: sudo apt-get install libfreetype6-dev
     - name: Build Linux
       run: cargo build --verbose --release
     - name: Archive Linux Artifact
