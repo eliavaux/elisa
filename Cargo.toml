@@ -1,7 +1,8 @@
 [package]
 name = "elisa"
-version = "0.1.0"
+version = "0.1.3"
 edition = "2021"
+description = "Assay analysis Application for 4 Parameter Logistic curve fitting"
 
 [dependencies]
 calamine = "0.26.1"
@@ -16,3 +17,8 @@ pdf-writer = "0.13.0"
 rfd = "0.15.1"
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.135"
+
+[package.metadata.bundle]
+name = "Elisa"
+identifier = "com.eliavaux.elisa"
+icon = ["resources/Icon.png"]
