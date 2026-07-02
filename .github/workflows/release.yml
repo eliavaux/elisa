@@ -12,46 +12,76 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - name: Install freetypew
-      run: sudo apt-get install libfreetype6-dev
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install cargo-bundle
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-bundle
+
+    - name: Install freetype
+      run: sudo apt-get install libfreetype6-dev # Linux needs freetype
+
     - name: Build on Linux
-      run: |
-        cargo build --verbose --release
-        mv target/release/elisa target/release/elisa-linux
+      run: cargo bundle --release
+
     - name: Archive Linux Artifact
       uses: actions/upload-artifact@v4
       with:
         name: build-linux
-        path: target/release/elisa-linux
+        path: target/release/bundle/deb/*
+
 
   build-windows:
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
+
     - name: Build on Windows
       run: |
-        cargo build --verbose --release
-        mv target/release/elisa.exe target/release/elisa-windows.exe
+        cargo build --release
+        mv target/release/elisa.exe target/release/Elisa.exe
+
     - name: Archive Windows Artifact
       uses: actions/upload-artifact@v4
       with:
         name: build-windows
-        path: target/release/elisa-windows.exe
+        path: target/release/Elisa.exe
+
 
   build-macos:
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install cargo-bundle
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-bundle
+
     - name: Build on MacOS
+      run: cargo bundle --release
+
+    - name: Sign the application bundle
+      uses: indygreg/apple-code-sign-action@v1
+      with:
+        input_path: target/release/bundle/osx/Elisa.app
+        output_path: target/release/bundle/osx/Elisa.app
+
+    - name: Zip bundle
       run: |
-        cargo build --verbose --release
-        mv target/release/elisa target/release/elisa-macos
+        cd target/release/bundle/osx
+        zip -r Elisa.app.zip Elisa.app
+
     - name: Archive MacOS Artifact
       uses: actions/upload-artifact@v4
       with:
         name: build-macos
-        path: target/release/elisa-macos
+        path: target/release/bundle/osx/*
+
 
   release:
     # This job runs only after both build jobs successfully complete
@@ -64,23 +94,27 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: build-linux
+
       - name: Download Windows Artifact
         uses: actions/download-artifact@v4
         with:
           name: build-windows
+
       - name: Download MacOS Artifact
         uses: actions/download-artifact@v4
         with:
           name: build-macos
+
+      - name: Show downloads
+        run: ls -ahl .
+
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
           # The tag name (e.g., v1.0.0) is automatically used as the release name/tag
           files: |
-            elisa-linux
-            elisa-macos
-            elisa-windows.exe
+            *
         env:
           # GITHUB_TOKEN is a secret provided by GitHub automatically
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
